@@ -9,6 +9,7 @@ IN: riley-duper
 SYMBOL: textures
 SYMBOL: add-button
 SYMBOL: save-button
+SYMBOL: bg
 
 TUPLE: world grids last-selected ;
 TUPLE: grid x y attributes pictures albums ;
@@ -16,6 +17,7 @@ TUPLE: picture name x y attributes ;
 TUPLE: album pictures ;
 
 GENERIC: draw ( snark -- )
+GENERIC: scroll ( n snark! -- )
 GENERIC: update-attribute ( pic attribute name -- )
 GENERIC: frame ( pic -- frame )
 GENERIC: draw-frame ( pic -- )
@@ -38,13 +40,14 @@ GENERIC: remove-ls ( pic world -- )
 GENERIC: find-pic-by-name ( name grid -- pic )
 GENERIC: draw-ls ( world -- )
 GENERIC: dump-pics ( grid -- )
+
 : <picture> ( name x y -- pic )
     H{ { "selected?" f }
-      { "frame-mod" 5 }
-      { "frame-size" 100 }
-      { "playpen" f }
-      { "height" 0 }
-      { "width"  0 } } { } assoc-like picture boa clone ;
+       { "frame-mod" 5 }
+       { "frame-size" 110 }
+       { "playpen" f }
+       { "height" 0 }
+       { "width"  0 } } { } assoc-like picture boa clone ;
 
 : make-vector-2 ( x y -- Vector2 )
     Vector2 <struct-boa> ;
@@ -72,7 +75,7 @@ M: world remove-ls
     find-pic-by-name
     world get last-selected>> remove
     world get last-selected<< ;
-   
+
 M: world push-ls
     dup
     [ last-selected>> swap name>> 0 0 <picture> prefix ] dip
@@ -90,7 +93,7 @@ M: grid check
     [ attributes>> "xinc" of ]
     [ attributes>> "xmax" of ] tri
     [ + ] dip > ;
-    
+
 : increment-y ( grid -- )
     dup [ y>> ] [ attributes>> "yinc" of ] bi
     + >>y drop ;
@@ -101,7 +104,7 @@ M: grid check
 
 : reset-x ( grid -- grid )
     dup  attributes>> "xset" of >>x ;
-    
+
 M: grid increment
     dup check
     [ [ increment-y ]
@@ -154,7 +157,7 @@ M: picture draw-frame
       [ dup [ y>> ] dip
         attributes>> "frame-mod" of - ]
       [ attributes>> "frame-size" of dup ]
-      tri ORANGE draw-rectangle ]
+      tri RED draw-rectangle ]
     [ drop ] if ;
 
 M: picture update-attribute
@@ -190,7 +193,7 @@ M: grid find-pic-by-name
     [ pictures>> ] dip
     filter first ;
 
-    M: grid remove-pic
+M: grid remove-pic
     dup [ find-pic-by-name ] dip
     dup [ pictures>> remove ] dip
     pictures<< ;
@@ -202,25 +205,34 @@ M: grid add-pic
 
 : make-window ( -- )
     1200 800 "Riley Duper" init-window
-    30 set-target-fps ;
+    30 set-target-fps
+    "Riley Duper" set-window-title ;
 
 : riley-background ( -- )
     GRAY clear-background ;
 
 : get-pictures ( -- seq )
     current-directory get directory-files
-    [ file-extension "jpg" = ] filter ;
+    [ file-extension "jpg" = ] filter
+    [ 0 3 rot subseq "___" = ] reject ;
 
 : get-mouse-frame ( -- frame )
     get-mouse-x
     get-mouse-y
     1 1 make-rectangle ;
 
-: unclick ( pic -- )
-    dup world get last-selected>>
-    remove world get last-selected<<
+: unclick-from-ls ( pic -- )
+    name>> [ swap name>> = ] curry
+    world get last-selected>> swap
+    reject world get last-selected<< ;
+
+: unclick-from-playpen ( pic -- )
     world get grids>> "playpen" of
     remove-pic ;
+
+: unclick ( pic -- )
+    [ unclick-from-ls ]
+    [ unclick-from-playpen ] bi ;
 
 : playpen-ls-update ( pic -- )
     world get organize-ls ;
@@ -243,7 +255,7 @@ M: picture clicked
     dup attributes>> "selected?" of not
     "selected?" pick update-attribute
     update-ls ;
-    
+
 M: picture check-collision
     dup frame get-mouse-frame check-collision-recs
     [ clicked ] [ drop ] if ;
@@ -258,7 +270,7 @@ M: grid check-collision
     dup albums>> first pictures>> first
     [ dup pictures>> ] dip prefix
     >>pictures drop ;
-    
+
 : add-album ( quereel album -- )
     [ dup albums>> ] dip prefix
     >>albums add-album-thumbnail ;
@@ -280,7 +292,7 @@ M: grid dump-pics
     [ name>> ] map
     [ swap name>> swap member? ] curry reject
     grid1 pictures<< ;
-    
+
 : sift-main-grid ( world -- )
     grids>> [ "main" of ] [ "quereel" of ] bi
     sift-grid ;
@@ -295,11 +307,56 @@ M: grid dump-pics
     ! Images going into the quereel are removed from
     ! the main grid
     [ sift-main-grid ] tri ;
+
+: mouse-collision ( z x y c -- bool )
+    make-rectangle get-mouse-frame check-collision-recs ;
+
+: copy-new-pic-from-album ( pic n y -- )
+    [ number>string ] bi@ swap "-" prepend
+    append "___" prepend ".jpg" append
+    [ name>> ] dip copy-file ;
+
+: copy-new-album-name ( n pic -- )
+    pictures>> dup length <iota>
+    [ [ copy-new-pic-from-album ] curry ] 2dip
+    rot
+    2each ;
+
+: copy-new-pic-name ( n pic -- )
+    name>> swap number>string
+    "___" prepend
+    ".jpg" append
+    copy-file ;
+
+: copy-new-file-name ( pic n -- )
+    swap dup album?
+    [ copy-new-album-name ]
+    [ copy-new-pic-name ] if ;
+
+! Dangerous
+: remove-old ( -- )
+    current-directory get directory-files
+    [ file-extension "jpg" = ] filter
+    [ 0 3 rot subseq "___" = ] filter
+    [ delete-file ] each ;
+
+: save-clicked ( world -- )
+    ! Gather main and quereel images into a sequence
+    ! Run a 2 map with an <iota> of the length
+    ! Rename files
+    remove-old
+    grids>> [ "main" of pictures>> ]
+    [ "quereel" of albums>> ] bi append
+    dup length <iota>
+    [ copy-new-file-name ] 2each ;
     
 : check-button-collision ( world -- )
-    800 725 150 25 make-rectangle
-    get-mouse-frame check-collision-recs
-    [ ok-clicked ] [ drop ] if ;
+    { { [ dup last-selected>> empty? not
+          800 725 150 25 mouse-collision
+          and ] [ ok-clicked ] }
+      { [ 975 725 150 25 mouse-collision ]
+        [ save-clicked ] }
+      [ drop ] } cond ;
 
 ! Reject quereel from clicks for now.
 ! Should be right clicked only
@@ -313,8 +370,10 @@ M: world draw
     [ draw-ls ] bi ;
 
 M: world check-mouse-input
-    0 is-mouse-button-pressed
-    [ check-collision ] [ drop ] if ;
+    dup 0 is-mouse-button-pressed
+    [ check-collision ] [ drop ] if
+    get-mouse-wheel-move dup 0 = not
+    [ swap grids>> "main" of scroll ] [ 2drop ] if ;
 
 : draw-overlay ( -- )
     75 100 2 650 make-rectangle 12.0 12 2
@@ -325,11 +384,21 @@ M: world check-mouse-input
     RAYWHITE draw-rectangle-rounded-lines ;
 
 : draw-buttons ( -- )
-    add-button get 800 725 WHITE draw-texture ;
+    add-button get 800 725 WHITE draw-texture
+    save-button get 975 725 WHITE draw-texture ;
 
+: draw-bg ( -- )
+    bg get 0 0 WHITE draw-texture ;
+
+M:: grid scroll ( n snark! -- )
+    snark
+    [ attributes>> "factorinc" of n * ]
+    [ attributes>> "yset" of ] bi +
+    "yset" snark attributes>> set-at ;
+    
 M: world render
     begin-drawing
-    riley-background
+    draw-bg
     draw
     draw-overlay
     draw-buttons
@@ -337,38 +406,38 @@ M: world render
 
 : make-initial-world ( -- world )
     H{ { "playpen" T{ grid { x 760 } { y 30 }
-                     { attributes { { "xinc" 110 }
-                                    { "xmax" 1100 }
-                                    { "yinc" 110 }
-                                    { "xset" 760 }
-                                    { "picwidth" 100 }
-                                    { "picheight" 100 }
-                                    { "nextgrid" "quereel" }
-                                    { "playpen" t }
-                                    { "yset" 30 } } }
-                     { pictures { } } { albums { } } } }
-      { "main" T{ grid { x 100 } { y 0 }
-                  { attributes { { "xinc" 210 }
-                                 { "xmax" 600 }
-                                 { "yinc" 210 }
-                                 { "xset" 100 }
-                                 { "yset" 30  }
-                                 { "picwidth" 200 }
-                                 { "picheight" 200 }
-                                 { "nextgrid" "playpen" }
-                                 { "factor" 60 } } }
-                  { pictures { } } { albums { } } } }
-      { "quereel" T{ grid { x 10 } { y 50 }
-                  { attributes { { "xinc" 60 }
-                                 { "xmax" 60 }
-                                 { "yinc" 60 }
-                                 { "xset" 10 }
-                                 { "yset" 50  }
-                                 { "picwidth" 50 }
-                                 { "picheight" 50 }
-                                 { "nextgrid" "null" }
-                                 { "factor" 0 } } }
-                  { pictures { } } { albums { } } } } 
+                      { attributes { { "xinc" 110 }
+                                     { "xmax" 1100 }
+                                     { "yinc" 110 }
+                                     { "xset" 760 }
+                                     { "picwidth" 100 }
+                                     { "picheight" 100 }
+                                     { "nextgrid" "quereel" }
+                                     { "playpen" t }
+                                     { "yset" 30 } } }
+                      { pictures { } } { albums { } } } }
+       { "main" T{ grid { x 100 } { y 0 }
+                   { attributes { { "xinc" 210 }
+                                  { "xmax" 600 }
+                                  { "yinc" 210 }
+                                  { "xset" 100 }
+                                  { "yset" 30  }
+                                  { "picwidth" 200 }
+                                  { "picheight" 200 }
+                                  { "nextgrid" "playpen" }
+                                  { "factor" 0 }
+                                  { "factorinc" 60 } } }
+                   { pictures { } } { albums { } } } }
+       { "quereel" T{ grid { x 10 } { y 50 }
+                      { attributes { { "xinc" 60 }
+                                     { "xmax" 60 }
+                                     { "yinc" 60 }
+                                     { "xset" 10 }
+                                     { "yset" 50  }
+                                     { "picwidth" 50 }
+                                     { "picheight" 50 }
+                                     { "nextgrid" "null" } } }
+                      { pictures { } } { albums { } } } } 
     } { } assoc-like
     { }  world boa clone ;
 
@@ -377,11 +446,19 @@ M: world render
     [ riley-image-load ] map
     zip textures set ;
 
+: button-loader ( name -- button )
+    load-image dup 150 25 image-resize
+    load-texture-from-image ;
+
 : set-buttons ( -- )
-    "add.png" load-image dup
-    150 25 image-resize
-    load-texture-from-image
-    add-button set ;
+    "add.png" button-loader
+    add-button set
+    "save.png" button-loader
+    save-button set ;
+
+: set-bg ( -- )
+    "Shore.png" load-image load-texture-from-image
+    bg set ;
 
 : populate-world ( world -- world )
     get-pictures
@@ -391,8 +468,16 @@ M: world render
       picture-dimensions ] dip
     dup world set ;
 
+SYMBOL: pic-max
+
+: loading-screen ( -- )
+    get-pictures length
+    pic-max set
+    ;
+
 : init-setup ( -- world )
-    make-window set-buttons set-pictures
+    make-window
+    set-bg set-buttons set-pictures
     make-initial-world populate-world ;
 
 : main ( -- )
