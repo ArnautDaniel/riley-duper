@@ -1,15 +1,18 @@
 ! Copyright (C) 2019 Jack Lucas
 ! See http://factorcode.org/license.txt for BSD license.
-USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint images images.loader.gtk concurrency.combinators sequences.deep shuffle assocs ;
+USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint images images.loader.gtk concurrency.combinators sequences.deep shuffle assocs math.functions ;
 
 QUALIFIED: images.loader
 
 IN: riley-duper
 
 SYMBOL: textures
+SYMBOL: texture-len
 SYMBOL: add-button
 SYMBOL: save-button
 SYMBOL: bg
+SYMBOL: loading-screen-max
+SYMBOL: loading-vector
 
 TUPLE: world grids last-selected ;
 TUPLE: grid x y attributes pictures albums ;
@@ -205,8 +208,7 @@ M: grid add-pic
 
 : make-window ( -- )
     1200 800 "Riley Duper" init-window
-    30 set-target-fps
-    "Riley Duper" set-window-title ;
+    30 set-target-fps ;
 
 : riley-background ( -- )
     GRAY clear-background ;
@@ -214,7 +216,8 @@ M: grid add-pic
 : get-pictures ( -- seq )
     current-directory get directory-files
     [ file-extension "jpg" = ] filter
-    [ 0 3 rot subseq "___" = ] reject ;
+    [ 0 3 rot subseq "___" = ] reject dup
+    length loading-screen-max set ;
 
 : get-mouse-frame ( -- frame )
     get-mouse-x
@@ -441,10 +444,33 @@ M: world render
     } { } assoc-like
     { }  world boa clone ;
 
+: progress-string ( -- str )
+    texture-len get number>string
+    "/"
+    loading-screen-max get number>string
+    append append ;
+
+: loading-circle ( -- start end )
+    360 loading-screen-max get /
+    texture-len get * -1 * floor
+    0 swap ;
+
+: draw-loading-screen ( -- )
+    begin-drawing
+    draw-bg
+    "Loading Pictures" 500 400 24 BLACK draw-text
+    progress-string 750 400 24 BLACK draw-text
+    loading-vector get
+    100 loading-circle 100 RED draw-circle-sector
+    end-drawing ;
+
+! Japanese beer is nice
 : set-pictures ( -- )
-    get-pictures dup
-    [ riley-image-load ] map
-    zip textures set ;
+    get-pictures [ draw-loading-screen ]
+    [ dup riley-image-load { } 2sequence
+      textures get swap prefix textures set
+    texture-len inc ]
+    interleave ;
 
 : button-loader ( name -- button )
     load-image dup 150 25 image-resize
@@ -468,17 +494,21 @@ M: world render
       picture-dimensions ] dip
     dup world set ;
 
-SYMBOL: pic-max
-
-: loading-screen ( -- )
-    get-pictures length
-    pic-max set
-    ;
+: loading-screen ( -- bool )
+    texture-len get loading-screen-max get = not
+    [ draw-loading-screen t ]
+    [ f ] if ;
 
 : init-setup ( -- world )
     make-window
-    set-bg set-buttons set-pictures
-    make-initial-world populate-world ;
+    { } textures set
+    0 texture-len set
+    600 600 Vector2 <struct-boa> loading-vector set
+    set-bg set-buttons
+    ! [ yield loading-screen ] loop
+    make-initial-world
+    set-pictures
+    populate-world ;
 
 : main ( -- )
     init-setup
