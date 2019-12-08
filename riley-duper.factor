@@ -1,8 +1,9 @@
 ! Copyright (C) 2019 Jack Lucas
 ! See http://factorcode.org/license.txt for BSD license.
-USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint images images.loader.gtk concurrency.combinators sequences.deep shuffle assocs math.functions ;
+USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint sequences.deep shuffle assocs math.functions ;
 
-QUALIFIED: images.loader
+! images.loader.gtk images
+! QUALIFIED: images.loader
 
 IN: riley-duper
 
@@ -44,6 +45,7 @@ GENERIC: find-pic-by-name ( name grid -- pic )
 GENERIC: draw-ls ( world -- )
 GENERIC: dump-pics ( grid -- )
 
+
 : <picture> ( name x y -- pic )
     H{ { "selected?" f }
        { "frame-mod" 5 }
@@ -64,10 +66,12 @@ GENERIC: dump-pics ( grid -- )
 ! Use Factor's gtk jpg loader and send the raw data to
 ! raylib which can then use it to load the texture
 : riley-image-load ( name -- image )
-    images.loader:load-image
-    [ bitmap>> ] [ dim>> first ] [ dim>> second ] tri
-    4 ! Format number for jpgs
-    load-image-pro load-texture-from-image ;
+    ! images.loader:load-image
+    ! [ bitmap>> ] [ dim>> first ] [ dim>> second ] tri
+    ! 4 ! Format number for jpgs
+    load-image
+    [ load-texture-from-image ] keep
+    unload-image ;
 
 M: world find-pic-by-name
     swap name>>
@@ -210,12 +214,9 @@ M: grid add-pic
     1200 800 "Riley Duper" init-window
     30 set-target-fps ;
 
-: riley-background ( -- )
-    GRAY clear-background ;
-
 : get-pictures ( -- seq )
     current-directory get directory-files
-    [ file-extension "jpg" = ] filter
+    [ file-extension "png" = ] filter
     [ 0 3 rot subseq "___" = ] reject dup
     length loading-screen-max set ;
 
@@ -446,8 +447,7 @@ M: world render
 
 : progress-string ( -- str )
     texture-len get number>string
-    "/"
-    loading-screen-max get number>string
+    "/" loading-screen-max get number>string
     append append ;
 
 : loading-circle ( -- start end )
@@ -466,15 +466,16 @@ M: world render
 
 ! Japanese beer is nice
 : set-pictures ( -- )
-    get-pictures [ draw-loading-screen ]
+    get-pictures ! [ draw-loading-screen ]
     [ dup riley-image-load { } 2sequence
       textures get swap prefix textures set
     texture-len inc ]
-    interleave ;
+    each ;
 
 : button-loader ( name -- button )
     load-image dup 150 25 image-resize
-    load-texture-from-image ;
+    [ load-texture-from-image ] keep
+    unload-image ;
 
 : set-buttons ( -- )
     "add.png" button-loader
@@ -483,8 +484,8 @@ M: world render
     save-button set ;
 
 : set-bg ( -- )
-    "Shore.png" load-image load-texture-from-image
-    bg set ;
+    "Shore.png" load-image [ load-texture-from-image ] keep
+    unload-image bg set ;
 
 : populate-world ( world -- world )
     get-pictures
@@ -494,18 +495,12 @@ M: world render
       picture-dimensions ] dip
     dup world set ;
 
-: loading-screen ( -- bool )
-    texture-len get loading-screen-max get = not
-    [ draw-loading-screen t ]
-    [ f ] if ;
-
 : init-setup ( -- world )
     make-window
     { } textures set
     0 texture-len set
     600 600 Vector2 <struct-boa> loading-vector set
     set-bg set-buttons
-    ! [ yield loading-screen ] loop
     make-initial-world
     set-pictures
     populate-world ;
