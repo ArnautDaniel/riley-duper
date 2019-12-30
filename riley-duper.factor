@@ -1,6 +1,6 @@
 ! Copyright (C) 2019 Jack Lucas
 ! See http://factorcode.org/license.txt for BSD license.
-USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint sequences.deep shuffle assocs math.functions ;
+USING: kernel math.ranges sequences locals random combinators.random math threads namespaces accessors classes.struct combinators alien.enums io.pathnames io.directories math.parser classes.tuple raylib.ffi raylib.modules.gui prettyprint sequences.deep shuffle assocs math.functions riley-dj alien.data ;
 
 ! images.loader.gtk images
 ! QUALIFIED: images.loader
@@ -63,16 +63,24 @@ GENERIC: dump-pics ( grid -- )
 : riley-texture ( name -- texture )
     textures get at ;
 
+: riley-bmp ( bmp -- bmp )
+    [ buf>> ] [ size>> ] bi
+    memory>byte-array ;
+
 ! Use Factor's gtk jpg loader and send the raw data to
 ! raylib which can then use it to load the texture
 : riley-image-load ( name -- image )
     ! images.loader:load-image
     ! [ bitmap>> ] [ dim>> first ] [ dim>> second ] tri
     ! 4 ! Format number for jpgs
-    load-image
-    [ load-texture-from-image ] keep
-    unload-image ;
-
+    ! load-image
+    ! [ load-texture-from-image ] keep
+    ! unload-image ;
+    riley-dj-decode
+    [ riley-bmp ] [ width>> ] [ height>> ] tri
+    4 load-image-pro
+    [ load-texture-from-image ] keep unload-image ;
+    
 M: world find-pic-by-name
     swap name>>
     [ swap name>> = ] curry
@@ -216,7 +224,7 @@ M: grid add-pic
 
 : get-pictures ( -- seq )
     current-directory get directory-files
-    [ file-extension "png" = ] filter
+    [ file-extension "jpg" = ] filter
     [ 0 3 rot subseq "___" = ] reject dup
     length loading-screen-max set ;
 
@@ -466,11 +474,11 @@ M: world render
 
 ! Japanese beer is nice
 : set-pictures ( -- )
-    get-pictures ! [ draw-loading-screen ]
+    get-pictures [ draw-loading-screen ]
     [ dup riley-image-load { } 2sequence
       textures get swap prefix textures set
     texture-len inc ]
-    each ;
+    interleave ;
 
 : button-loader ( name -- button )
     load-image dup 150 25 image-resize
